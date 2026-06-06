@@ -1,0 +1,29 @@
+{
+	"name": "unified-storage",
+	"version": "0.0.1",
+	"private": true,
+	"workspaces": [
+		"packages/*"
+	],
+	"type": "module",
+	"scripts": {
+		"build": "turbo run build",
+		"lint": "turbo run lint",
+		"test": "turbo run test",
+		"check": "turbo run check"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"oxfmt": "^0.48.0",
+		"oxlint": "^1.63.0",
+		"oxlint-tsgolint": "^0.22.1",
+		"tsdown": "^0.22.0",
+		"turbo": "^2.9.16",
+		"typescript": "^6",
+		"vitest": "^4.1.8"
+	},
+	"packageManager": "bun@1.3.13",
+	"dependencies": {
+		"synthkernel": "^0.0.2"
+	}
+}
