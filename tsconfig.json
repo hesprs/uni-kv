@@ -16,5 +16,6 @@
 		"lib": ["ESNext", "DOM", "DOM.Iterable"],
 		"types": ["bun"],
 		"outDir": "dist"
-	}
+	},
+	"include": ["**/*.ts"]
 }
