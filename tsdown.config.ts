@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown';
 
-const mode = Bun.env.MODE;
+const mode = process.env.MODE;
 const inspect = mode === 'inspect';
 
 export default defineConfig({
@@ -10,4 +10,8 @@ export default defineConfig({
 	entry: 'src/index.ts',
 	minify: true,
 	unbundle: true,
+	platform: 'neutral',
+	outExtensions: () => {
+		return { js: '.js', dts: '.ts' };
+	},
 });
