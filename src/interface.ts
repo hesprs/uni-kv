@@ -32,7 +32,7 @@ export type SetOperation<T> = { type: 'set'; key: string; value: T };
 export type DeleteOperation = { type: 'delete'; key: string };
 export type StoreOperations<T> = GetOperation | SetOperation<T> | DeleteOperation;
 
-// Public API, create or open existing database
+// Public API, create or open existing database, used by `satisfy` only
 export type OpenDB = <
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},

@@ -2,6 +2,8 @@ This is the TypeScript monorepo for Unified KV, `blueprint/` rests the canonical
 
 This project aims to deliver a lightweight and unified interface for data storage.
 
+Tests live under `test/`.
+
 ## Commands
 
 - `bun lint`: format and fix fixable lint errors (always run before `bun check`).

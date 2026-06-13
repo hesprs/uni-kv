@@ -9,9 +9,7 @@ export default defineConfig({
 	dts: true,
 	entry: 'src/index.ts',
 	minify: true,
-	unbundle: true,
+	outExtensions: () => ({ dts: '.ts', js: '.js' }),
 	platform: 'neutral',
-	outExtensions: () => {
-		return { js: '.js', dts: '.ts' };
-	},
+	unbundle: true,
 });
