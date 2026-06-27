@@ -26,13 +26,31 @@ test('IndexedDBDatabase should create store on first getStore call', async () =>
 	expect(await db.getStoreNames()).toEqual(['items']);
 });
 
-test('IndexedDBStore wrappers should keep working after later schema upgrades', async () => {
+test('IndexedDBDatabase should create concurrent fresh stores safely', async () => {
+	const db = await open(uniqueName('indexed-db-concurrent-stores'));
+
+	const [syncState, baseText] = await Promise.all([
+		db.getStore('sync-state'),
+		db.getStore('base-text'),
+	]);
+
+	expect((await db.getStoreNames()).sort()).toEqual(['base-text', 'sync-state']);
+
+	await Promise.all([syncState.set('sync', '1'), baseText.set('base', '2')]);
+
+	expect(await syncState.get('sync')).toBe('1');
+	expect(await baseText.get('base')).toBe('2');
+});
+
+test('IndexedDBStore wrappers should keep working during later schema upgrades', async () => {
 	const db = await open(uniqueName('indexed-db-upgrade'));
 	const users = await db.getStore('users');
 
 	await users.set('a', '1');
-	await db.getStore('logs');
-	await users.set('b', '2');
+	const upgrade = db.getStore('logs');
+	const write = users.set('b', '2');
+
+	await Promise.all([upgrade, write]);
 
 	expect(await users.get('b')).toBe('2');
 });

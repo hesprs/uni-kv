@@ -12,6 +12,29 @@ import type {
 
 const META_STORE = '__uni-kv-meta__';
 
+const schemaLocks = new Map<string, Promise<void>>();
+
+async function withSchemaLock<T>(name: string, task: () => Promise<T>): Promise<T> {
+	const previous = schemaLocks.get(name) ?? Promise.resolve();
+	let release!: () => void;
+	const current = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const next = previous.then(
+		() => current,
+		() => current,
+	);
+	schemaLocks.set(name, next);
+
+	try {
+		await previous;
+		return await task();
+	} finally {
+		release();
+		if (schemaLocks.get(name) === next) schemaLocks.delete(name);
+	}
+}
+
 const openInitializedDatabase = async (name: string, version?: number): Promise<IDBPDatabase> => {
 	let database = await openDB(name, version, {
 		upgrade: createMetaStore,
@@ -34,29 +57,30 @@ const createMetaStore = (database: IDBPDatabase): void => {
 
 class IndexedDBStore<T> implements StoreAsync<T> {
 	constructor(
-		private readonly getDatabase: () => IDBPDatabase,
+		private readonly getDatabase: () => Promise<IDBPDatabase>,
 		private readonly storeName: string,
 	) {}
 
 	async get(key: string): Promise<T | undefined> {
-		const value = await this.getDatabase().get(this.storeName, key);
+		const database = await this.getDatabase();
+		const value = await database.get(this.storeName, key);
 		return value as T | undefined;
 	}
 
 	async set(key: string, value: T): Promise<void> {
-		await this.getDatabase().put(this.storeName, value, key);
+		await (await this.getDatabase()).put(this.storeName, value, key);
 	}
 
 	async delete(key: string): Promise<void> {
-		await this.getDatabase().delete(this.storeName, key);
+		await (await this.getDatabase()).delete(this.storeName, key);
 	}
 
 	async clear(): Promise<void> {
-		await this.getDatabase().clear(this.storeName);
+		await (await this.getDatabase()).clear(this.storeName);
 	}
 
 	async keys(): Promise<Array<string>> {
-		const keys = await this.getDatabase().getAllKeys(this.storeName);
+		const keys = await (await this.getDatabase()).getAllKeys(this.storeName);
 		return keys.map((key) => {
 			if (typeof key === 'string') return key;
 
@@ -66,7 +90,7 @@ class IndexedDBStore<T> implements StoreAsync<T> {
 
 	async batch(operations: Array<StoreOperations<T>>): Promise<Array<GetResult<T>>> {
 		if (operations.length === 0) return [];
-		const database = this.getDatabase();
+		const database = await this.getDatabase();
 
 		if (operations.every((operation) => operation.type === 'get')) {
 			const tx = database.transaction(this.storeName, 'readonly');
@@ -112,10 +136,21 @@ class IndexedDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 > implements DatabaseAsync<D, M> {
+	private pendingSchemaChange?: Promise<void>;
+
 	constructor(
 		public readonly name: string,
 		private idb: IDBPDatabase,
 	) {}
+
+	private async waitForSchemaChanges(): Promise<void> {
+		await this.pendingSchemaChange;
+	}
+
+	private async getStableDatabase(): Promise<IDBPDatabase> {
+		await this.waitForSchemaChanges();
+		return this.idb;
+	}
 
 	private async reopenWithUpgrade(upgrade: (database: IDBPDatabase) => void): Promise<void> {
 		const version = this.idb.version + 1;
@@ -125,9 +160,36 @@ class IndexedDBDatabase<
 		});
 	}
 
+	private async ensureMetaStoreUnlocked(): Promise<void> {
+		if (this.idb.objectStoreNames.contains(META_STORE)) return;
+		await this.reopenWithUpgrade(createMetaStore);
+	}
+
+	private async runSchemaChange<T>(task: () => Promise<T>): Promise<T> {
+		const previous = this.pendingSchemaChange ?? Promise.resolve();
+		let release!: () => void;
+		const current = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const next = previous.then(
+			() => current,
+			() => current,
+		);
+		this.pendingSchemaChange = next;
+
+		try {
+			await previous;
+			return await withSchemaLock(this.name, task);
+		} finally {
+			release();
+			if (this.pendingSchemaChange === next) this.pendingSchemaChange = undefined;
+		}
+	}
+
 	private async ensureMetaStore(): Promise<void> {
-		if (!this.idb.objectStoreNames.contains(META_STORE))
-			await this.reopenWithUpgrade(createMetaStore);
+		await this.runSchemaChange(async () => {
+			await this.ensureMetaStoreUnlocked();
+		});
 	}
 
 	private assertNotMetaStore(name: string): void {
@@ -144,57 +206,65 @@ class IndexedDBDatabase<
 		const storeName = String(name);
 		this.assertNotMetaStore(storeName);
 
-		if (!this.idb.objectStoreNames.contains(storeName))
+		await this.runSchemaChange(async () => {
+			if (this.idb.objectStoreNames.contains(storeName)) return;
 			await this.reopenWithUpgrade((database) => {
 				createMetaStore(database);
 				if (!database.objectStoreNames.contains(storeName))
 					database.createObjectStore(storeName);
 			});
+		});
 
-		return new IndexedDBStore<StoreValue<D, K, T>>(() => this.idb, storeName);
+		return new IndexedDBStore<StoreValue<D, K, T>>(() => this.getStableDatabase(), storeName);
 	}
 
 	async getStoreNames(): Promise<Array<string>> {
+		await this.waitForSchemaChanges();
 		return [...this.idb.objectStoreNames].filter((name) => name !== META_STORE);
 	}
 
 	async deleteStore(name: string): Promise<void> {
 		this.assertNotMetaStore(name);
-		if (!this.idb.objectStoreNames.contains(name)) return;
 
-		await this.reopenWithUpgrade((database) => {
-			if (database.objectStoreNames.contains(name)) database.deleteObjectStore(name);
+		await this.runSchemaChange(async () => {
+			if (!this.idb.objectStoreNames.contains(name)) return;
 
-			createMetaStore(database);
+			await this.reopenWithUpgrade((database) => {
+				if (database.objectStoreNames.contains(name)) database.deleteObjectStore(name);
+
+				createMetaStore(database);
+			});
 		});
 	}
 
 	async clearStores(): Promise<void> {
-		const storeNames = [...this.idb.objectStoreNames].filter((name) => name !== META_STORE);
+		await this.runSchemaChange(async () => {
+			const storeNames = [...this.idb.objectStoreNames].filter((name) => name !== META_STORE);
 
-		if (storeNames.length === 0) {
-			await this.ensureMetaStore();
-			return;
-		}
+			if (storeNames.length === 0) {
+				await this.ensureMetaStoreUnlocked();
+				return;
+			}
 
-		await this.reopenWithUpgrade((database) => {
-			for (const storeName of storeNames)
-				if (database.objectStoreNames.contains(storeName))
-					database.deleteObjectStore(storeName);
+			await this.reopenWithUpgrade((database) => {
+				for (const storeName of storeNames)
+					if (database.objectStoreNames.contains(storeName))
+						database.deleteObjectStore(storeName);
 
-			createMetaStore(database);
+				createMetaStore(database);
+			});
 		});
 	}
 
 	async getMeta<T extends keyof M>(key: T): Promise<M[T] | undefined> {
 		await this.ensureMetaStore();
-		const value = await this.idb.get(META_STORE, String(key));
+		const value = await (await this.getStableDatabase()).get(META_STORE, String(key));
 		return value as M[T] | undefined;
 	}
 
 	async setMeta<T extends keyof M>(key: T, value: M[T]): Promise<void> {
 		await this.ensureMetaStore();
-		await this.idb.put(META_STORE, value, String(key));
+		await (await this.getStableDatabase()).put(META_STORE, value, String(key));
 	}
 }
 
