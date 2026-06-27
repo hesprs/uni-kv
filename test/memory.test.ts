@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test';
-import { deleteMemoryDB, MemoryStore, openMemoryDB } from '../src/backends/memory';
+import { deleteMemoryDB, openMemoryDB } from '@/backends/memory';
 
 const uniqueName = (label: string) =>
 	`${label}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const memoryDB = openMemoryDB('memoryDB-test');
 
 test('openMemoryDB should reuse database instance for same name', () => {
 	const name = uniqueName('reuse');
@@ -20,12 +22,8 @@ test('MemoryDatabase should create store on first getStore call', () => {
 	const name = uniqueName('create-store');
 	try {
 		const db = openMemoryDB(name);
-
 		expect(db.getStoreNames()).toEqual([]);
-
-		const store = db.getStore('users');
-
-		expect(store).toBeInstanceOf(MemoryStore);
+		db.getStore('users');
 		expect(db.getStoreNames()).toEqual(['users']);
 	} finally {
 		deleteMemoryDB(name);
@@ -33,7 +31,7 @@ test('MemoryDatabase should create store on first getStore call', () => {
 });
 
 test('MemoryStore CRUD and keys should work synchronously', () => {
-	const store = new MemoryStore<string>();
+	const store = memoryDB.getStore<string>('test1');
 
 	store.set('b', '2');
 	store.set('a', '1');
@@ -52,7 +50,7 @@ test('MemoryStore CRUD and keys should work synchronously', () => {
 });
 
 test('MemoryStore batch should apply ordered operations and return get results', () => {
-	const store = new MemoryStore<number>();
+	const store = memoryDB.getStore<number>('test2');
 
 	const results = store.batch([
 		{ key: 'a', type: 'set', value: 1 },

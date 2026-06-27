@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 // oxlint-disable-next-line import/no-unassigned-import
 import 'fake-indexeddb/auto';
-import { deleteIndexedDB, openIndexedDB } from '../src/backends/indexed-db';
+import { deleteIndexedDB, openIndexedDB } from '@/backends/indexed-db';
 
 const open = (name: string) => openIndexedDB<Record<string, string>, { version: number }>(name);
 const uniqueName = (label: string) =>
@@ -101,6 +101,7 @@ test('deleteIndexedDB should remove physical database', async () => {
 
 	await store.set('a', '1');
 	await db.setMeta('version', 1);
+	db.dispose();
 
 	await deleteIndexedDB(name);
 

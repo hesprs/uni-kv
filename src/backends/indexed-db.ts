@@ -1,39 +1,16 @@
 import type { IDBPDatabase } from 'idb';
 import { deleteDB, openDB } from 'idb';
 import type {
-	Database,
+	DatabaseAsync,
 	DeleteDB,
 	GetResult,
-	Store,
+	OpenDB,
+	StoreAsync,
 	StoreOperations,
 	StoreValue,
-} from '../interface';
+} from '@/interface';
 
 const META_STORE = '__uni-kv-meta__';
-const closeDatabase = Symbol('closeDatabase');
-
-const trackedDatabases = new Map<
-	string,
-	Set<IndexedDBDatabase<Record<string, unknown>, Record<string, unknown>>>
->();
-
-const trackDatabase = (
-	database: IndexedDBDatabase<Record<string, unknown>, Record<string, unknown>>,
-): void => {
-	const databases = trackedDatabases.get(database.name);
-	if (databases !== undefined) {
-		databases.add(database);
-		return;
-	}
-	trackedDatabases.set(database.name, new Set([database]));
-};
-
-const closeTrackedDatabases = (name: string): void => {
-	const databases = trackedDatabases.get(name);
-	if (databases === undefined) return;
-	for (const database of databases) database[closeDatabase]();
-	trackedDatabases.delete(name);
-};
 
 const openInitializedDatabase = async (name: string, version?: number): Promise<IDBPDatabase> => {
 	let database = await openDB(name, version, {
@@ -55,7 +32,7 @@ const createMetaStore = (database: IDBPDatabase): void => {
 	if (!database.objectStoreNames.contains(META_STORE)) database.createObjectStore(META_STORE);
 };
 
-export class IndexedDBStore<T> implements Store<T> {
+class IndexedDBStore<T> implements StoreAsync<T> {
 	constructor(
 		private readonly getDatabase: () => IDBPDatabase,
 		private readonly storeName: string,
@@ -131,10 +108,10 @@ export class IndexedDBStore<T> implements Store<T> {
 	}
 }
 
-export class IndexedDBDatabase<
+class IndexedDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
-> implements Database<D, M> {
+> implements DatabaseAsync<D, M> {
 	constructor(
 		public readonly name: string,
 		private idb: IDBPDatabase,
@@ -157,7 +134,7 @@ export class IndexedDBDatabase<
 		if (name === META_STORE) throw new Error('Cannot access internal meta store');
 	}
 
-	[closeDatabase](): void {
+	dispose(): void {
 		this.idb.close();
 	}
 
@@ -221,18 +198,16 @@ export class IndexedDBDatabase<
 	}
 }
 
-export const openIndexedDB = async <
+export const openIndexedDB = (async <
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 >(
 	name: string,
 ) => {
 	const database = new IndexedDBDatabase<D, M>(name, await openInitializedDatabase(name));
-	trackDatabase(database as IndexedDBDatabase<Record<string, unknown>, Record<string, unknown>>);
 	return database;
-};
+}) as OpenDB<true>;
 
-export const deleteIndexedDB = (async (name: string) => {
-	closeTrackedDatabases(name);
+export const deleteIndexedDB: DeleteDB<true> = async (name: string) => {
 	await deleteDB(name);
-}) satisfies DeleteDB;
+};

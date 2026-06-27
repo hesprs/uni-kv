@@ -1,18 +1,19 @@
 import type {
-	Database,
+	DatabaseSync,
 	DeleteDB,
 	GetResult,
-	Store,
+	StoreSync,
 	StoreOperations,
 	StoreValue,
-} from '../interface';
+	OpenDB,
+} from '@/interface';
 
-const memoryDatabaseRegistry = new Map<
+const memoryDBRegistry = new Map<
 	string,
-	MemoryDatabase<Record<string, unknown>, Record<string, unknown>>
+	MemoryDBDatabase<Record<string, unknown>, Record<string, unknown>>
 >();
 
-export class MemoryStore<T> implements Store<T> {
+class MemoryDBStore<T> implements StoreSync<T> {
 	private readonly entries: Map<string, T>;
 
 	constructor(entries?: Iterable<readonly [string, T]>) {
@@ -62,11 +63,11 @@ export class MemoryStore<T> implements Store<T> {
 	}
 }
 
-export class MemoryDatabase<
+class MemoryDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
-> implements Database<D, M> {
-	private readonly stores: Map<string, MemoryStore<unknown>>;
+> implements DatabaseSync<D, M> {
+	private readonly stores: Map<string, MemoryDBStore<unknown>>;
 	private readonly meta: Record<string, unknown>;
 
 	constructor(readonly name: string) {
@@ -76,13 +77,13 @@ export class MemoryDatabase<
 
 	getStore<T = undefined, K extends keyof D = ''>(
 		name: T extends undefined ? K : string,
-	): MemoryStore<StoreValue<D, K, T>> {
+	): MemoryDBStore<StoreValue<D, K, T>> {
 		const storeName = String(name);
 		const existing = this.stores.get(storeName);
 
-		if (existing !== undefined) return existing as MemoryStore<StoreValue<D, K, T>>;
+		if (existing !== undefined) return existing as MemoryDBStore<StoreValue<D, K, T>>;
 
-		const store = new MemoryStore<StoreValue<D, K, T>>();
+		const store = new MemoryDBStore<StoreValue<D, K, T>>();
 		this.stores.set(storeName, store);
 		return store;
 	}
@@ -106,26 +107,24 @@ export class MemoryDatabase<
 	setMeta<T extends keyof M>(key: T, value: M[T]): void {
 		this.meta[String(key)] = value;
 	}
+
+	// No need for disposal
+	dispose(): void {}
 }
 
-export const openMemoryDB = <
+export const openMemoryDB = (<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 >(
 	name: string,
 ) => {
-	const existing = memoryDatabaseRegistry.get(name);
-
-	if (existing !== undefined) return existing as MemoryDatabase<D, M>;
-
-	const database = new MemoryDatabase<D, M>(name);
-	memoryDatabaseRegistry.set(
-		name,
-		database as MemoryDatabase<Record<string, unknown>, Record<string, unknown>>,
-	);
+	const existing = memoryDBRegistry.get(name);
+	if (existing !== undefined) return existing as MemoryDBDatabase<D, M>;
+	const database = new MemoryDBDatabase<D, M>(name);
+	memoryDBRegistry.set(name, database);
 	return database;
-};
+}) as OpenDB<false>;
 
-export const deleteMemoryDB = ((name: string) => {
-	memoryDatabaseRegistry.delete(name);
-}) satisfies DeleteDB;
+export const deleteMemoryDB: DeleteDB<false> = (name: string) => {
+	memoryDBRegistry.delete(name);
+};

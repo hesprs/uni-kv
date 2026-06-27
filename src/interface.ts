@@ -1,31 +1,45 @@
-// oxlint-disable typescript/consistent-type-definitions
 // oxlint-disable typescript/method-signature-style
 
-export interface Database<D extends Record<string, unknown>, M extends Record<string, unknown>> {
+type Database<
+	D extends Record<string, unknown>,
+	M extends Record<string, unknown>,
+	F extends boolean,
+> = {
 	// Return the store if already exist, otherwise create a new one
 	// TypeScript trick: if user provided store name is in D, use it. Otherwise user can provide custom T and create stores with arbitrary names
 	getStore<T = undefined, K extends keyof D = ''>(
 		name: T extends undefined ? K : string,
-	): MaybePromise<Store<StoreValue<D, K, T>>>;
-	getStoreNames(): MaybePromise<Array<string>>;
-	deleteStore(name: string): MaybePromise<void>;
+	): IsPromise<Store<StoreValue<D, K, T>, F>, F>;
+	getStoreNames(): IsPromise<Array<string>, F>;
+	deleteStore(name: string): IsPromise<void, F>;
 	// Delete all stores
-	clearStores(): MaybePromise<void>;
-	getMeta<T extends keyof M>(key: T): MaybePromise<M[T] | undefined>;
-	setMeta<T extends keyof M>(key: T, value: M[T]): MaybePromise<void>;
-}
+	clearStores(): IsPromise<void, F>;
+	getMeta<T extends keyof M>(key: T): IsPromise<M[T] | undefined, F>;
+	setMeta<T extends keyof M>(key: T, value: M[T]): IsPromise<void, F>;
+	dispose(): void;
+};
 
-export interface Store<T> {
-	get(key: string): MaybePromise<T | undefined>;
-	set(key: string, value: T): MaybePromise<void>;
-	delete(key: string): MaybePromise<void>;
+type Store<T, F extends boolean> = {
+	get(key: string): IsPromise<T | undefined, F>;
+	set(key: string, value: T): IsPromise<void, F>;
+	delete(key: string): IsPromise<void, F>;
 	// Clear all entries
-	clear(): MaybePromise<void>;
-	keys(): MaybePromise<Array<string>>;
+	clear(): IsPromise<void, F>;
+	keys(): IsPromise<Array<string>, F>;
 	// Only get operations need returning
-	batch(operations: Array<StoreOperations<T>>): MaybePromise<Array<GetResult<T>>>;
-}
+	batch(operations: Array<StoreOperations<T>>): IsPromise<Array<GetResult<T>>, F>;
+};
 
+export type StoreSync<T> = Store<T, false>;
+export type StoreAsync<T> = Store<T, true>;
+export type DatabaseSync<
+	D extends Record<string, unknown>,
+	M extends Record<string, unknown>,
+> = Database<D, M, false>;
+export type DatabaseAsync<
+	D extends Record<string, unknown>,
+	M extends Record<string, unknown>,
+> = Database<D, M, true>;
 export type GetOperation = { type: 'get'; key: string };
 export type GetResult<T> = { key: string; value: T | undefined };
 export type SetOperation<T> = { type: 'set'; key: string; value: T };
@@ -38,15 +52,13 @@ export type StoreValue<D extends Record<string, unknown>, K extends keyof D, T> 
 	? D[K]
 	: T;
 
-// Public API, create or open existing database, used by `satisfy` only
-export type OpenDB = <
+export type OpenDB<F extends boolean> = <
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 >(
 	name: string,
-) => MaybePromise<Database<D, M>>;
+) => IsPromise<Database<D, M, F>, F>;
 
-// Public API, delete a database if it exists
-export type DeleteDB = (name: string) => MaybePromise<void>;
+export type DeleteDB<F extends boolean> = (name: string) => IsPromise<void, F>;
 
-type MaybePromise<T> = T | Promise<T>;
+type IsPromise<T, F extends boolean> = F extends true ? Promise<T> : T;
