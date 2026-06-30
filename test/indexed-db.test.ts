@@ -26,6 +26,18 @@ test('IndexedDBDatabase should create store on first getStore call', async () =>
 	expect(await db.getStoreNames()).toEqual(['items']);
 });
 
+test('IndexedDBDatabase should coalesce same store creation in same tick', async () => {
+	const db = await open(uniqueName('indexed-db-coalesce-store'));
+
+	const [first, second] = await Promise.all([db.getStore('items'), db.getStore('items')]);
+
+	await Promise.all([first.set('a', '1'), second.set('b', '2')]);
+
+	expect(await db.getStoreNames()).toEqual(['items']);
+	expect(await first.get('b')).toBe('2');
+	expect(await second.get('a')).toBe('1');
+});
+
 test('IndexedDBDatabase should create concurrent fresh stores safely', async () => {
 	const db = await open(uniqueName('indexed-db-concurrent-stores'));
 
