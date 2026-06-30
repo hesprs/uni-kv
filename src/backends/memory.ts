@@ -40,6 +40,10 @@ class MemoryDBStore<T> implements StoreSync<T> {
 		return [...this.entries.keys()];
 	}
 
+	values(): Array<T> {
+		return [...this.entries.values()];
+	}
+
 	batch(operations: Array<StoreOperations<T>>): Array<GetResult<T>> {
 		const results: Array<GetResult<T>> = [];
 

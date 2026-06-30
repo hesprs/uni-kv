@@ -26,6 +26,7 @@ type Store<T, F extends boolean> = {
 	// Clear all entries
 	clear(): IsPromise<void, F>;
 	keys(): IsPromise<Array<string>, F>;
+	values(): IsPromise<Array<T>, F>;
 	// Only get operations need returning
 	batch(operations: Array<StoreOperations<T>>): IsPromise<Array<GetResult<T>>, F>;
 };

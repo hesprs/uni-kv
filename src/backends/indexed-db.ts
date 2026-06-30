@@ -88,6 +88,11 @@ class IndexedDBStore<T> implements StoreAsync<T> {
 		});
 	}
 
+	async values(): Promise<Array<T>> {
+		const values = await (await this.getDatabase()).getAll(this.storeName);
+		return values as Array<T>;
+	}
+
 	async batch(operations: Array<StoreOperations<T>>): Promise<Array<GetResult<T>>> {
 		if (operations.length === 0) return [];
 		const database = await this.getDatabase();
