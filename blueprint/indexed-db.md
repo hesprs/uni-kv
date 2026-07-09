@@ -11,4 +11,3 @@
 - For other non-batch store operations, use `idb` provided simplified versions `put`, `get`, `delete`.
 - `getStoreNames()` ignores the dedicated meta store.
 - Use lock to prevent race condition on store creation.
-- Coalesce `DatabaseAsync.getStore()` by using `queueMicrotask`.

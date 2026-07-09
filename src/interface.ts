@@ -9,7 +9,7 @@ type Database<
 	// TypeScript trick: if user provided store name is in D, use it. Otherwise user can provide custom T and create stores with arbitrary names
 	getStore<T = undefined, K extends keyof D = ''>(
 		name: T extends undefined ? K : string,
-	): IsPromise<Store<StoreValue<D, K, T>, F>, F>;
+	): Store<StoreValue<D, K, T>, F>;
 	getStoreNames(): IsPromise<Array<string>, F>;
 	deleteStore(name: string): IsPromise<void, F>;
 	// Delete all stores

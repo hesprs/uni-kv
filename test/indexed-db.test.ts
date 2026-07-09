@@ -18,18 +18,11 @@ test('openIndexedDB should create reusable database with meta store hidden from 
 	expect(await reopened.getStoreNames()).toEqual([]);
 });
 
-test('IndexedDBDatabase should create store on first getStore call', async () => {
-	const db = open(uniqueName('indexed-db-lazy-store'));
-
-	await db.getStore('items');
-	expect(await db.getStoreNames()).toEqual(['items']);
-});
-
 test('IndexedDBDatabase should coalesce same store creation in same tick', async () => {
 	const db = open(uniqueName('indexed-db-coalesce-store'));
 
-	const [first, second] = await Promise.all([db.getStore('items'), db.getStore('items')]);
-
+	const first = db.getStore('items');
+	const second = db.getStore('items');
 	await Promise.all([first.set('a', '1'), second.set('b', '2')]);
 
 	expect(await db.getStoreNames()).toEqual(['items']);
@@ -40,14 +33,12 @@ test('IndexedDBDatabase should coalesce same store creation in same tick', async
 test('IndexedDBDatabase should create concurrent fresh stores safely', async () => {
 	const db = open(uniqueName('indexed-db-concurrent-stores'));
 
-	const [syncState, baseText] = await Promise.all([
-		db.getStore('sync-state'),
-		db.getStore('base-text'),
-	]);
+	const syncState = db.getStore('sync-state');
+	const baseText = db.getStore('base-text');
 
-	expect((await db.getStoreNames()).sort()).toEqual(['base-text', 'sync-state']);
-
+	expect(await db.getStoreNames()).toEqual([]);
 	await Promise.all([syncState.set('sync', '1'), baseText.set('base', '2')]);
+	expect((await db.getStoreNames()).sort()).toEqual(['base-text', 'sync-state']);
 
 	expect(await syncState.get('sync')).toBe('1');
 	expect(await baseText.get('base')).toBe('2');
@@ -55,10 +46,9 @@ test('IndexedDBDatabase should create concurrent fresh stores safely', async () 
 
 test('IndexedDBStore wrappers should keep working during later schema upgrades', async () => {
 	const db = open(uniqueName('indexed-db-upgrade'));
-	const users = await db.getStore('users');
-
+	const users = db.getStore('users');
 	await users.set('a', '1');
-	const upgrade = db.getStore('logs');
+	const upgrade = db.getStore('logs').set('a', '1');
 	const write = users.set('b', '2');
 
 	await Promise.all([upgrade, write]);
@@ -68,7 +58,7 @@ test('IndexedDBStore wrappers should keep working during later schema upgrades',
 
 test('IndexedDBStore CRUD and keys should work through idb helpers', async () => {
 	const db = open(uniqueName('indexed-db-crud'));
-	const store = await db.getStore('items');
+	const store = db.getStore('items');
 
 	await store.set('a', '1');
 	await store.set('b', '2');
@@ -84,7 +74,7 @@ test('IndexedDBStore CRUD and keys should work through idb helpers', async () =>
 
 test('IndexedDBStore batch should return ordered get results including missing values', async () => {
 	const db = open(uniqueName('indexed-db-batch'));
-	const store = await db.getStore('items');
+	const store = db.getStore('items');
 
 	const results = await store.batch([
 		{ key: 'a', type: 'set', value: '1' },
@@ -109,7 +99,7 @@ test('IndexedDBDatabase meta methods should use dedicated meta store', async () 
 
 test('IndexedDBDatabase clearStores should keep database usable', async () => {
 	const db = open(uniqueName('indexed-db-clear'));
-	const store = await db.getStore('items');
+	const store = db.getStore('items');
 
 	await store.set('a', '1');
 	await db.setMeta('version', 1);
@@ -118,7 +108,7 @@ test('IndexedDBDatabase clearStores should keep database usable', async () => {
 	expect(await db.getStoreNames()).toEqual([]);
 	expect(await db.getMeta('version')).toBe(1);
 
-	const recreated = await db.getStore('items');
+	const recreated = db.getStore('items');
 	await recreated.set('b', '2');
 	expect(await recreated.get('b')).toBe('2');
 });
@@ -126,7 +116,7 @@ test('IndexedDBDatabase clearStores should keep database usable', async () => {
 test('deleteIndexedDB should remove physical database', async () => {
 	const name = uniqueName('indexed-db-delete');
 	const db = open(name);
-	const store = await db.getStore('items');
+	const store = db.getStore('items');
 
 	await store.set('a', '1');
 	await db.setMeta('version', 1);
@@ -137,5 +127,5 @@ test('deleteIndexedDB should remove physical database', async () => {
 	const reopened = open(name);
 	expect(await reopened.getStoreNames()).toEqual([]);
 	expect(await reopened.getMeta('version')).toBeUndefined();
-	expect(await (await reopened.getStore('items')).get('a')).toBeUndefined();
+	expect(await reopened.getStore('items').get('a')).toBeUndefined();
 });

@@ -1,4 +1,4 @@
-This is the TypeScript monorepo for Unified KV, `blueprint/` rests the canonical spec this project wants to achieve.
+This is the TypeScript project for Unified KV, `blueprint/` rests the canonical spec this project wants to achieve.
 
 This project aims to deliver a lightweight and unified interface for data storage.
 
