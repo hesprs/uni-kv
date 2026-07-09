@@ -14,34 +14,38 @@ const memoryDBRegistry = new Map<
 >();
 
 class MemoryDBStore<T> implements StoreSync<T> {
-	private readonly entries: Map<string, T>;
+	private readonly map: Map<string, T>;
 
 	constructor(entries?: Iterable<readonly [string, T]>) {
-		this.entries = new Map(entries);
+		this.map = new Map(entries);
 	}
 
 	get(key: string): T | undefined {
-		return this.entries.get(key);
+		return this.map.get(key);
 	}
 
 	set(key: string, value: T): void {
-		this.entries.set(key, value);
+		this.map.set(key, value);
 	}
 
 	delete(key: string): void {
-		this.entries.delete(key);
+		this.map.delete(key);
 	}
 
 	clear(): void {
-		this.entries.clear();
+		this.map.clear();
 	}
 
 	keys(): Array<string> {
-		return [...this.entries.keys()];
+		return [...this.map.keys()];
 	}
 
 	values(): Array<T> {
-		return [...this.entries.values()];
+		return [...this.map.values()];
+	}
+
+	entries(): Array<[string, T]> {
+		return [...this.map.entries()];
 	}
 
 	batch(operations: Array<StoreOperations<T>>): Array<GetResult<T>> {
@@ -50,15 +54,15 @@ class MemoryDBStore<T> implements StoreSync<T> {
 		for (const operation of operations)
 			switch (operation.type) {
 				case 'get': {
-					results.push({ key: operation.key, value: this.entries.get(operation.key) });
+					results.push({ key: operation.key, value: this.map.get(operation.key) });
 					break;
 				}
 				case 'set': {
-					this.entries.set(operation.key, operation.value);
+					this.map.set(operation.key, operation.value);
 					break;
 				}
 				case 'delete': {
-					this.entries.delete(operation.key);
+					this.map.delete(operation.key);
 					break;
 				}
 			}
@@ -112,7 +116,6 @@ class MemoryDBDatabase<
 		this.meta[String(key)] = value;
 	}
 
-	// No need for disposal
 	dispose(): void {}
 }
 

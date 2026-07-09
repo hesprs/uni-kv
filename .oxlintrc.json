@@ -63,7 +63,7 @@
 		"react/jsx-props-no-spreading": "off",
 		"import/no-unassigned-import": [
 			"warn",
-			{ "allow": ["**/*.css", "**/*.scss", "**/*.less"] }
+			{ "allow": ["**/*.css", "**/*.scss", "**/*.less", "fake-indexeddb/auto"] }
 		],
 		"eslint/no-underscore-dangle": ["warn", { "allow": ["__root__"] }],
 		"unicorn/number-literal-case": "off",

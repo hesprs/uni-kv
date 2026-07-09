@@ -12,22 +12,6 @@ import type {
 
 const META_STORE = '__uni-kv-meta__';
 
-const openInitializedDatabase = async (name: string, version?: number): Promise<IDBPDatabase> => {
-	const db = await openDB(name, version, { upgrade: createMetaStore });
-	if (db.objectStoreNames.contains(META_STORE)) return db;
-	db.close();
-	return openDB(name, db.version + 1, { upgrade: createMetaStore });
-};
-
-const createMetaStore = (db: IDBPDatabase): void => {
-	if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE);
-};
-
-const createStores = (db: IDBPDatabase, storeNames: Iterable<string>): void => {
-	for (const name of storeNames)
-		if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
-};
-
 class IndexedDBStore<T> implements StoreAsync<T> {
 	constructor(
 		private readonly getDatabase: () => Promise<IDBPDatabase>,
@@ -61,6 +45,12 @@ class IndexedDBStore<T> implements StoreAsync<T> {
 		return (await (await this.getDatabase()).getAll(this.storeName)) as Array<T>;
 	}
 
+	async entries(): Promise<Array<[string, T]>> {
+		return (await this.batch((await this.keys()).map((key) => ({ key, type: 'get' })))).map(
+			({ key, value }) => [key, value as T],
+		);
+	}
+
 	async batch(operations: Array<StoreOperations<T>>): Promise<Array<GetResult<T>>> {
 		if (!operations.length) return [];
 		const database = await this.getDatabase();
@@ -86,119 +76,37 @@ class IndexedDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 > implements DatabaseAsync<D, M> {
-	private pendingSchemaChange?: Promise<void>;
-	private readonly pendingStoreCreations = new Map<
-		string,
-		{
-			promise: Promise<void>;
-			resolve: () => void;
-			reject: (reason: unknown) => void;
-		}
-	>();
-	private storeCreationFlushScheduled = false;
+	private idb: Promise<IDBPDatabase>;
+	private upgradeLock?: Promise<void>;
 
-	constructor(
-		public readonly name: string,
-		private idb: IDBPDatabase,
-	) {}
-
-	private async waitForSchemaChanges(): Promise<void> {
-		await this.pendingSchemaChange;
+	constructor(public readonly name: string) {
+		this.idb = openDB(this.name);
 	}
 
-	private async getStableDatabase(): Promise<IDBPDatabase> {
-		await this.waitForSchemaChanges();
-		return this.idb;
+	private async hasStore(name: string) {
+		return (await this.idb).objectStoreNames.contains(name);
 	}
 
 	private async reopenWithUpgrade(upgrade: (db: IDBPDatabase) => void): Promise<void> {
-		this.idb.close();
-		this.idb = await openDB(this.name, this.idb.version + 1, { upgrade });
-	}
-
-	private async runSchemaChange<T>(task: () => Promise<T>): Promise<T> {
-		const previous = this.pendingSchemaChange ?? Promise.resolve();
-		let release!: () => void;
-		const current = new Promise<void>((resolve) => (release = resolve));
-		this.pendingSchemaChange = current;
-		try {
-			await previous;
-			return await task();
-		} finally {
-			release();
-			if (this.pendingSchemaChange === current) this.pendingSchemaChange = undefined;
-		}
-	}
-
-	private async ensureStores(storeNames: Array<string>): Promise<void> {
-		const missing = [...new Set(storeNames)].filter(
-			(n) => !this.idb.objectStoreNames.contains(n),
-		);
-		if (!missing.length) return;
-
-		await this.runSchemaChange(async () => {
-			const unresolved = missing.filter((n) => !this.idb.objectStoreNames.contains(n));
-			if (!unresolved.length) return;
-			await this.reopenWithUpgrade((db) => {
-				createMetaStore(db);
-				createStores(db, unresolved);
-			});
-		});
-	}
-
-	private async ensureMetaStore(): Promise<void> {
-		await this.ensureStores([META_STORE]);
-	}
-
-	private schedulePendingStoreFlush(): void {
-		if (this.storeCreationFlushScheduled) return;
-		this.storeCreationFlushScheduled = true;
-		queueMicrotask(() => void this.flushPendingStoreCreations());
-	}
-
-	private async flushPendingStoreCreations(): Promise<void> {
-		this.storeCreationFlushScheduled = false;
-		const pending = [...this.pendingStoreCreations.entries()];
-		if (!pending.length) return;
-		try {
-			await this.ensureStores(pending.map(([n]) => n));
-			for (const [n, entry] of pending)
-				if (this.pendingStoreCreations.get(n) === entry) {
-					this.pendingStoreCreations.delete(n);
-					entry.resolve();
-				}
-		} catch (error) {
-			for (const [n, entry] of pending)
-				if (this.pendingStoreCreations.get(n) === entry) {
-					this.pendingStoreCreations.delete(n);
-					entry.reject(error);
-				}
-		}
-	}
-
-	private async ensureStore(name: string): Promise<void> {
-		await this.waitForSchemaChanges();
-		if (this.idb.objectStoreNames.contains(name)) return;
-		const pending = this.pendingStoreCreations.get(name);
-		if (pending) return await pending.promise;
-
+		if (this.upgradeLock) await this.upgradeLock;
 		let resolve!: () => void;
-		let reject!: (reason: unknown) => void;
-		const promise = new Promise<void>((res, rej) => {
-			resolve = res;
-			reject = rej;
+		this.upgradeLock = new Promise((resolver) => (resolve = resolver));
+		const database = await this.idb;
+		database.close();
+		this.idb = openDB(this.name, database.version + 1, { upgrade });
+		resolve();
+		this.upgradeLock = undefined;
+	}
+
+	private async ensureStore(store: string): Promise<void> {
+		if (await this.hasStore(store)) return;
+		await this.reopenWithUpgrade((db) => {
+			if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
 		});
-		this.pendingStoreCreations.set(name, { promise, reject, resolve });
-		this.schedulePendingStoreFlush();
-		await promise;
 	}
 
 	private assertNotMetaStore(name: string): void {
 		if (name === META_STORE) throw new Error('Cannot access internal meta store');
-	}
-
-	dispose(): void {
-		this.idb.close();
 	}
 
 	async getStore<T = undefined, K extends keyof D = ''>(
@@ -207,58 +115,52 @@ class IndexedDBDatabase<
 		const storeName = String(name);
 		this.assertNotMetaStore(storeName);
 		await this.ensureStore(storeName);
-		return new IndexedDBStore<StoreValue<D, K, T>>(() => this.getStableDatabase(), storeName);
+		return new IndexedDBStore<StoreValue<D, K, T>>(() => this.idb, storeName);
 	}
 
 	async getStoreNames(): Promise<Array<string>> {
-		await this.waitForSchemaChanges();
-		return [...this.idb.objectStoreNames].filter((n) => n !== META_STORE);
+		const database = await this.idb;
+		return [...database.objectStoreNames].filter((n) => n !== META_STORE);
 	}
 
 	async deleteStore(name: string): Promise<void> {
 		this.assertNotMetaStore(name);
-		await this.runSchemaChange(async () => {
-			if (!this.idb.objectStoreNames.contains(name)) return;
-			await this.reopenWithUpgrade((db) => {
-				if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
-				createMetaStore(db);
-			});
+		if (!(await this.hasStore(name))) return;
+		await this.reopenWithUpgrade((db) => {
+			if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
 		});
 	}
 
 	async clearStores(): Promise<void> {
-		await this.runSchemaChange(async () => {
-			const names = [...this.idb.objectStoreNames].filter((n) => n !== META_STORE);
-			if (!names.length) {
-				if (!this.idb.objectStoreNames.contains(META_STORE))
-					await this.reopenWithUpgrade(createMetaStore);
-				return;
-			}
-			await this.reopenWithUpgrade((db) => {
-				for (const n of names) if (db.objectStoreNames.contains(n)) db.deleteObjectStore(n);
-				createMetaStore(db);
-			});
+		const database = await this.idb;
+		const names = [...database.objectStoreNames].filter((n) => n !== META_STORE);
+		if (!names.length) return;
+		await this.reopenWithUpgrade((db) => {
+			const newNames = [...database.objectStoreNames].filter((n) => n !== META_STORE);
+			for (const n of newNames) db.deleteObjectStore(n);
 		});
 	}
 
 	async getMeta<T extends keyof M>(key: T): Promise<M[T] | undefined> {
-		await this.ensureMetaStore();
-		return (await (await this.getStableDatabase()).get(META_STORE, String(key))) as
-			| M[T]
-			| undefined;
+		await this.ensureStore(META_STORE);
+		return (await (await this.idb).get(META_STORE, String(key))) as M[T] | undefined;
 	}
 
 	async setMeta<T extends keyof M>(key: T, value: M[T]): Promise<void> {
-		await this.ensureMetaStore();
-		await (await this.getStableDatabase()).put(META_STORE, value, String(key));
+		await this.ensureStore(META_STORE);
+		await (await this.idb).put(META_STORE, value, String(key));
+	}
+
+	async dispose() {
+		(await this.idb).close();
 	}
 }
 
-export const openIndexedDB = (async <
+export const openIndexedDB = (<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 >(
 	name: string,
-) => new IndexedDBDatabase<D, M>(name, await openInitializedDatabase(name))) as OpenDB<true>;
+) => new IndexedDBDatabase<D, M>(name)) as OpenDB<true>;
 
-export const deleteIndexedDB: DeleteDB<true> = async (name: string) => deleteDB(name);
+export const deleteIndexedDB: DeleteDB<true> = (name: string) => deleteDB(name);

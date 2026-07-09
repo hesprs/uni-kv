@@ -16,7 +16,7 @@ type Database<
 	clearStores(): IsPromise<void, F>;
 	getMeta<T extends keyof M>(key: T): IsPromise<M[T] | undefined, F>;
 	setMeta<T extends keyof M>(key: T, value: M[T]): IsPromise<void, F>;
-	dispose(): void;
+	dispose(): IsPromise<void, F>;
 };
 
 type Store<T, F extends boolean> = {
@@ -27,6 +27,7 @@ type Store<T, F extends boolean> = {
 	clear(): IsPromise<void, F>;
 	keys(): IsPromise<Array<string>, F>;
 	values(): IsPromise<Array<T>, F>;
+	entries(): IsPromise<Array<[string, T]>, F>;
 	// Only get operations need returning
 	batch(operations: Array<StoreOperations<T>>): IsPromise<Array<GetResult<T>>, F>;
 };
@@ -58,7 +59,7 @@ export type OpenDB<F extends boolean> = <
 	M extends Record<string, unknown> = {},
 >(
 	name: string,
-) => IsPromise<Database<D, M, F>, F>;
+) => Database<D, M, F>;
 
 export type DeleteDB<F extends boolean> = (name: string) => IsPromise<void, F>;
 
