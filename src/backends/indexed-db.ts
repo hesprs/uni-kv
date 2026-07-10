@@ -159,33 +159,29 @@ class IndexedDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 > implements DatabaseAsync<D, M> {
-	private idb?: IDBPDatabase;
+	private idb: Promise<IDBPDatabase>;
 	private readonly gate = new AccessGate();
 
-	constructor(public readonly name: string) {}
+	constructor(public readonly name: string) {
+		this.idb = openDB(this.name);
+	}
 
 	private async openDBUnlocked(
-		condition?: (db: IDBPDatabase) => boolean,
-		upgrade?: (db: IDBPDatabase) => void,
+		condition: (db: IDBPDatabase) => unknown,
+		upgrade: (db: IDBPDatabase) => void,
 	): Promise<IDBPDatabase> {
-		if (this.idb && condition?.(this.idb) === false) return this.idb;
-		this.idb?.close();
-		this.idb = await openDB(this.name, (this.idb?.version ?? 0) + 1, { upgrade });
+		const idb = await this.idb;
+		if (!condition(idb)) return this.idb;
+		idb.close();
+		this.idb = openDB(this.name, idb.version + 1, { upgrade });
 		return this.idb;
 	}
 
 	private async openDB(
-		condition?: (db: IDBPDatabase) => boolean,
-		upgrade?: (db: IDBPDatabase) => void,
+		condition: (db: IDBPDatabase) => unknown,
+		upgrade: (db: IDBPDatabase) => void,
 	): Promise<IDBPDatabase> {
 		return this.gate.exclusive(() => this.openDBUnlocked(condition, upgrade));
-	}
-
-	private async ensureStoreUnlocked(store: string): Promise<IDBPDatabase> {
-		return this.openDBUnlocked(
-			(db) => !db.objectStoreNames.contains(store),
-			(db) => db.createObjectStore(store),
-		);
 	}
 
 	private async withStore<T>(
@@ -194,15 +190,18 @@ class IndexedDBDatabase<
 	): Promise<T> {
 		try {
 			return await this.gate.shared(async () => {
-				const db = this.idb;
-				if (!db || !db.objectStoreNames.contains(store)) throw NEEDS_UPGRADE;
+				const db = await this.idb;
+				if (!db.objectStoreNames.contains(store)) throw NEEDS_UPGRADE;
 				return operation(db);
 			});
 		} catch (error) {
 			if (error !== NEEDS_UPGRADE) throw error;
 			return this.gate.exclusive(async () => {
-				const db = await this.ensureStoreUnlocked(store);
-				return this.gate.downgrade(() => operation(db));
+				const database = await this.openDBUnlocked(
+					(db) => !db.objectStoreNames.contains(store),
+					(db) => db.createObjectStore(store),
+				);
+				return this.gate.downgrade(() => operation(database));
 			});
 		}
 	}
@@ -223,20 +222,13 @@ class IndexedDBDatabase<
 	}
 
 	async getStoreNames(): Promise<Array<string>> {
-		if (!this.idb) {
-			const database = await this.openDB();
-			return [...database.objectStoreNames].filter((n) => n !== META_STORE);
-		}
-		return this.gate.shared(async () => {
-			const db = this.idb;
-			if (!db) return [];
-			return [...db.objectStoreNames].filter((n) => n !== META_STORE);
-		});
+		const database = await this.idb;
+		return [...database.objectStoreNames].filter((n) => n !== META_STORE);
 	}
 
 	async deleteStore(name: string): Promise<void> {
 		this.assertNotMetaStore(name);
-		if (this.idb && !this.idb.objectStoreNames.contains(name)) return;
+		if (!(await this.idb).objectStoreNames.contains(name)) return;
 		await this.openDB(
 			(db) => db.objectStoreNames.contains(name),
 			(db) => db.deleteObjectStore(name),
@@ -244,15 +236,14 @@ class IndexedDBDatabase<
 	}
 
 	async clearStores(): Promise<void> {
-		if (this.idb) {
-			const names = [...this.idb.objectStoreNames].filter((n) => n !== META_STORE);
-			if (!names.length) return;
-		}
+		const filterNames = (db: IDBPDatabase) =>
+			[...db.objectStoreNames].filter((n) => n !== META_STORE);
+		const names = filterNames(await this.idb);
+		if (!names.length) return;
 		await this.openDB(
-			() => true,
+			(db) => filterNames(db).length,
 			(db) => {
-				const newNames = [...db.objectStoreNames].filter((n) => n !== META_STORE);
-				for (const n of newNames) db.deleteObjectStore(n);
+				for (const n of filterNames(db)) db.deleteObjectStore(n);
 			},
 		);
 	}
@@ -268,10 +259,7 @@ class IndexedDBDatabase<
 	}
 
 	async dispose() {
-		await this.gate.exclusive(async () => {
-			this.idb?.close();
-			this.idb = undefined;
-		});
+		await this.gate.exclusive(async () => (await this.idb).close());
 	}
 }
 
