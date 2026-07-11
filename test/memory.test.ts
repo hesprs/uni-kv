@@ -50,7 +50,7 @@ test('MemoryStore CRUD and keys should work synchronously', () => {
 });
 
 test('MemoryStore batch should apply ordered operations and return get results', () => {
-	const store = memoryDB.getStore<number>('test2');
+	const store = memoryDB.getStore('test2');
 
 	const results = store.batch([
 		{ key: 'a', type: 'set', value: 1 },

@@ -4,7 +4,6 @@ import type {
 	GetResult,
 	StoreSync,
 	StoreOperations,
-	StoreValue,
 	OpenDB,
 } from '@/interface';
 
@@ -83,15 +82,13 @@ class MemoryDBDatabase<
 		this.meta = {};
 	}
 
-	getStore<T = undefined, K extends keyof D = ''>(
-		name: T extends undefined ? K : string,
-	): MemoryDBStore<StoreValue<D, K, T>> {
+	getStore<K extends keyof D>(name: K): MemoryDBStore<D[K]> {
 		const storeName = String(name);
 		const existing = this.stores.get(storeName);
 
-		if (existing !== undefined) return existing as MemoryDBStore<StoreValue<D, K, T>>;
+		if (existing !== undefined) return existing as MemoryDBStore<D[K]>;
 
-		const store = new MemoryDBStore<StoreValue<D, K, T>>();
+		const store = new MemoryDBStore<D[K]>();
 		this.stores.set(storeName, store);
 		return store;
 	}

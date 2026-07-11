@@ -6,10 +6,7 @@ type Database<
 	F extends boolean,
 > = {
 	// Return the store if already exist, otherwise create a new one
-	// TypeScript trick: if user provided store name is in D, use it. Otherwise user can provide custom T and create stores with arbitrary names
-	getStore<T = undefined, K extends keyof D = ''>(
-		name: T extends undefined ? K : string,
-	): Store<StoreValue<D, K, T>, F>;
+	getStore<K extends keyof D>(name: K): Store<D[K], F>;
 	getStoreNames(): IsPromise<Array<string>, F>;
 	deleteStore(name: string): IsPromise<void, F>;
 	// Delete all stores
@@ -47,12 +44,6 @@ export type GetResult<T> = { key: string; value: T | undefined };
 export type SetOperation<T> = { type: 'set'; key: string; value: T };
 export type DeleteOperation = { type: 'delete'; key: string };
 export type StoreOperations<T> = GetOperation | SetOperation<T> | DeleteOperation;
-
-export type StoreValue<D extends Record<string, unknown>, K extends keyof D, T> = [T] extends [
-	undefined,
-]
-	? D[K]
-	: T;
 
 export type OpenDB<F extends boolean> = <
 	D extends Record<string, unknown> = Record<string, unknown>,

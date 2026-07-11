@@ -7,7 +7,6 @@ import type {
 	OpenDB,
 	StoreAsync,
 	StoreOperations,
-	StoreValue,
 } from '@/interface';
 
 const META_STORE = '__uni-kv-meta__';
@@ -210,12 +209,10 @@ class IndexedDBDatabase<
 		if (name === META_STORE) throw new Error('Cannot access internal meta store');
 	}
 
-	getStore<T = undefined, K extends keyof D = ''>(
-		name: T extends undefined ? K : string,
-	): IndexedDBStore<StoreValue<D, K, T>> {
+	getStore<K extends keyof D>(name: K): IndexedDBStore<D[K]> {
 		const storeName = String(name);
 		this.assertNotMetaStore(storeName);
-		return new IndexedDBStore<StoreValue<D, K, T>>(
+		return new IndexedDBStore<D[K]>(
 			async (operation) => this.withStore(storeName, operation),
 			storeName,
 		);
