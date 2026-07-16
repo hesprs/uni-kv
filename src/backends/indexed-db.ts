@@ -158,22 +158,60 @@ class IndexedDBDatabase<
 	D extends Record<string, unknown> = Record<string, unknown>,
 	M extends Record<string, unknown> = {},
 > implements DatabaseAsync<D, M> {
-	private idb: Promise<IDBPDatabase>;
+	private idb: Promise<IDBPDatabase> | undefined;
 	private readonly gate = new AccessGate();
 
-	constructor(public readonly name: string) {
-		this.idb = openDB(this.name);
+	constructor(public readonly name: string) {}
+
+	private createConnection(
+		version?: number,
+		upgrade?: (db: IDBPDatabase) => void,
+	): Promise<IDBPDatabase> {
+		const connection = openDB(this.name, version, {
+			blocking: () => {
+				if (this.idb === connection) this.idb = undefined;
+				void connection?.then(
+					(db) => db.close(),
+					() => undefined,
+				);
+			},
+			terminated: () => {
+				if (this.idb === connection) this.idb = undefined;
+			},
+			upgrade,
+		});
+		return connection;
+	}
+
+	private async getConnection(): Promise<IDBPDatabase> {
+		const connection = this.idb ?? this.createConnection();
+		this.idb = connection;
+		try {
+			return await connection;
+		} catch (error) {
+			if (this.idb === connection) this.idb = undefined;
+			throw error;
+		}
 	}
 
 	private async openDBUnlocked(
 		condition: (db: IDBPDatabase) => unknown,
 		upgrade: (db: IDBPDatabase) => void,
 	): Promise<IDBPDatabase> {
-		const idb = await this.idb;
-		if (!condition(idb)) return this.idb;
-		idb.close();
-		this.idb = openDB(this.name, idb.version + 1, { upgrade });
-		return this.idb;
+		while (true) {
+			const idb = await this.getConnection();
+			if (!condition(idb)) return idb;
+			idb.close();
+			const connection = this.createConnection(idb.version + 1, upgrade);
+			this.idb = connection;
+			try {
+				const database = await connection;
+				if (!condition(database)) return database;
+			} catch (error) {
+				if (!(error instanceof DOMException) || error.name !== 'VersionError') throw error;
+				if (this.idb === connection) this.idb = undefined;
+			}
+		}
 	}
 
 	private async openDB(
@@ -189,7 +227,7 @@ class IndexedDBDatabase<
 	): Promise<T> {
 		try {
 			return await this.gate.shared(async () => {
-				const db = await this.idb;
+				const db = await this.getConnection();
 				if (!db.objectStoreNames.contains(store)) throw NEEDS_UPGRADE;
 				return operation(db);
 			});
@@ -219,13 +257,13 @@ class IndexedDBDatabase<
 	}
 
 	async getStoreNames(): Promise<Array<string>> {
-		const database = await this.idb;
+		const database = await this.getConnection();
 		return [...database.objectStoreNames].filter((n) => n !== META_STORE);
 	}
 
 	async deleteStore(name: string): Promise<void> {
 		this.assertNotMetaStore(name);
-		if (!(await this.idb).objectStoreNames.contains(name)) return;
+		if (!(await this.getConnection()).objectStoreNames.contains(name)) return;
 		await this.openDB(
 			(db) => db.objectStoreNames.contains(name),
 			(db) => db.deleteObjectStore(name),
@@ -235,7 +273,7 @@ class IndexedDBDatabase<
 	async clearStores(): Promise<void> {
 		const filterNames = (db: IDBPDatabase) =>
 			[...db.objectStoreNames].filter((n) => n !== META_STORE);
-		const names = filterNames(await this.idb);
+		const names = filterNames(await this.getConnection());
 		if (!names.length) return;
 		await this.openDB(
 			(db) => filterNames(db).length,
@@ -256,7 +294,9 @@ class IndexedDBDatabase<
 	}
 
 	async dispose() {
-		await this.gate.exclusive(async () => (await this.idb).close());
+		await this.gate.exclusive(async () => {
+			if (this.idb) (await this.idb).close();
+		});
 	}
 }
 

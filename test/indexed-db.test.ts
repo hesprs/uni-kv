@@ -5,6 +5,14 @@ import { deleteIndexedDB, openIndexedDB } from '@/backends/indexed-db';
 const open = (name: string) => openIndexedDB<Record<string, string>, { version: number }>(name);
 const uniqueName = (label: string) =>
 	`${label}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const settlesWithin = async (operation: Promise<unknown>, timeout = 100) =>
+	Promise.race([
+		operation.then(
+			() => true,
+			() => true,
+		),
+		Bun.sleep(timeout).then(() => false),
+	]);
 
 test('openIndexedDB should create reusable database with meta store hidden from getStoreNames', async () => {
 	const name = uniqueName('indexed-db-open-meta');
@@ -42,6 +50,37 @@ test('IndexedDBDatabase should create concurrent fresh stores safely', async () 
 
 	expect(await syncState.get('sync')).toBe('1');
 	expect(await baseText.get('base')).toBe('2');
+});
+
+test('schema upgrades should complete while another tab has the database open', async () => {
+	const name = uniqueName('indexed-db-cross-tab-upgrade');
+	const first = open(name);
+	const second = open(name);
+
+	try {
+		await Promise.all([first.getStoreNames(), second.getStoreNames()]);
+		expect(await settlesWithin(first.getStore('items').set('key', 'value'))).toBe(true);
+	} finally {
+		await Promise.all([first.dispose(), second.dispose()]);
+	}
+});
+
+test('concurrent tabs should preserve both schema upgrades', async () => {
+	const name = uniqueName('indexed-db-cross-tab-schema-race');
+	const first = open(name);
+	const second = open(name);
+
+	try {
+		await Promise.all([first.getStoreNames(), second.getStoreNames()]);
+		await Promise.all([
+			first.getStore('alpha').set('key', 'first'),
+			second.getStore('beta').set('key', 'second'),
+		]);
+
+		expect((await first.getStoreNames()).sort()).toEqual(['alpha', 'beta']);
+	} finally {
+		await Promise.all([first.dispose(), second.dispose()]);
+	}
 });
 
 test('IndexedDBStore wrappers should keep working during later schema upgrades', async () => {
@@ -128,4 +167,16 @@ test('deleteIndexedDB should remove physical database', async () => {
 	expect(await reopened.getStoreNames()).toEqual([]);
 	expect(await reopened.getMeta('version')).toBeUndefined();
 	expect(await reopened.getStore('items').get('a')).toBeUndefined();
+});
+
+test('deleteIndexedDB should complete while another tab has the database open', async () => {
+	const name = uniqueName('indexed-db-cross-tab-delete');
+	const db = open(name);
+
+	try {
+		await db.getStoreNames();
+		expect(await settlesWithin(deleteIndexedDB(name))).toBe(true);
+	} finally {
+		await db.dispose();
+	}
 });
