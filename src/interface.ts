@@ -29,15 +29,15 @@ type Store<T, F extends boolean> = {
 	batch(operations: Array<StoreOperations<T>>): IsPromise<Array<GetResult<T>>, F>;
 };
 
-export type StoreSync<T> = Store<T, false>;
-export type StoreAsync<T> = Store<T, true>;
+export type StoreSync<T = unknown> = Store<T, false>;
+export type StoreAsync<T = unknown> = Store<T, true>;
 export type DatabaseSync<
-	D extends Record<string, unknown>,
-	M extends Record<string, unknown>,
+	D extends Record<string, unknown> = Record<string, unknown>,
+	M extends Record<string, unknown> = {},
 > = Database<D, M, false>;
 export type DatabaseAsync<
-	D extends Record<string, unknown>,
-	M extends Record<string, unknown>,
+	D extends Record<string, unknown> = Record<string, unknown>,
+	M extends Record<string, unknown> = {},
 > = Database<D, M, true>;
 export type GetOperation = { type: 'get'; key: string };
 export type GetResult<T> = { key: string; value: T | undefined };
