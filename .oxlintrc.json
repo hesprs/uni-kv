@@ -69,7 +69,8 @@
 		"eslint/no-multi-assign": "off",
 		"react/jsx-handler-names": "off",
 		"typescript/method-signature-style": ["warn", "property"],
-		"typescript/no-unnecessary-type-parameters": "off"
+		"typescript/no-unnecessary-type-parameters": "off",
+		"eslint/one-var": "off"
 	},
 	"env": {
 		"builtin": true,
@@ -77,7 +78,8 @@
 	},
 	"globals": {
 		"Bun": "readonly",
-		"process": "readonly"
+		"process": "readonly",
+		"setImmediate": "readonly"
 	},
 	"overrides": [
 		{

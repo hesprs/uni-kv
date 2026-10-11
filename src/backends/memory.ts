@@ -19,6 +19,10 @@ class MemoryDBStore<T> implements StoreSync<T> {
 		this.map = new Map(entries);
 	}
 
+	size(): number {
+		return this.map.size;
+	}
+
 	get(key: string): T | undefined {
 		return this.map.get(key);
 	}

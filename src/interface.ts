@@ -17,6 +17,7 @@ type Database<
 };
 
 type Store<T, F extends boolean> = {
+	size(): IsPromise<number, F>;
 	get(key: string): IsPromise<T | undefined, F>;
 	set(key: string, value: T): IsPromise<void, F>;
 	delete(key: string): IsPromise<void, F>;

@@ -40,7 +40,6 @@ class AccessGate {
 			return;
 		}
 		await new Promise<void>((resolve) => this.readWaiters.push(resolve));
-		this.readers += 1;
 	}
 
 	private async acquireExclusive(): Promise<void> {
@@ -93,6 +92,10 @@ class IndexedDBStore<T> implements StoreAsync<T> {
 		private readonly run: <T>(operation: (db: IDBPDatabase) => Promise<T>) => Promise<T>,
 		private readonly storeName: string,
 	) {}
+
+	size(): Promise<number> {
+		return this.run((db) => db.count(this.storeName));
+	}
 
 	get(key: string): Promise<T | undefined> {
 		return this.run((db) => db.get(this.storeName, key));
@@ -229,7 +232,7 @@ class IndexedDBDatabase<
 			return await this.gate.shared(async () => {
 				const db = await this.getConnection();
 				if (!db.objectStoreNames.contains(store)) throw NEEDS_UPGRADE;
-				return operation(db);
+				return await operation(db);
 			});
 		} catch (error) {
 			if (error !== NEEDS_UPGRADE) throw error;

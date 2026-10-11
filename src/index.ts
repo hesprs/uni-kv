@@ -6,4 +6,4 @@ export type {
 	DatabaseAsync,
 	DatabaseSync,
 	StoreOperations,
-} from './interface';
+} from '@/interface';

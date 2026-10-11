@@ -169,6 +169,28 @@ test('deleteIndexedDB should remove physical database', async () => {
 	expect(await reopened.getStore('items').get('a')).toBeUndefined();
 });
 
+test('gate should not leak reader count after store upgrade with concurrent reads', async () => {
+	const db = open(uniqueName('indexed-db-gate-leak'));
+	const users = db.getStore('users');
+	await users.set('a', '1');
+
+	// Write1 holds a shared lock while the exclusive lock is requested
+	const write1 = users.set('b', '2');
+	// Upgrade triggers exclusive lock (store creation) — queues because write1 holds shared
+	const upgrade = db.getStore('logs').set('a', '1');
+	// Write2 via setImmediate fires after microtasks (exclusive is queued, waitingWriters > 0) but before fake-indexeddb's setImmediate callbacks, so acquireShared sees waitingWriters > 0 and queues
+	const write2 = new Promise<void>((resolve) => setImmediate(() => resolve(users.set('c', '3'))));
+
+	await Promise.all([upgrade, write1, write2]);
+
+	expect(await users.get('b')).toBe('2');
+	expect(await users.get('c')).toBe('3');
+	expect(await db.getStore('logs').get('a')).toBe('1');
+
+	// After all operations settle, exclusive lock must be acquirable. Bug: wake() and acquireShared() both increment readers for queued readers, inflating the count permanently — deleteStore hangs.
+	expect(await settlesWithin(db.deleteStore('logs'))).toBe(true);
+});
+
 test('deleteIndexedDB should complete while another tab has the database open', async () => {
 	const name = uniqueName('indexed-db-cross-tab-delete');
 	const db = open(name);
